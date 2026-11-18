@@ -6,7 +6,7 @@
 <title>AYUSH~PREP — आपका Question Bank और Quiz Platform</title>
 <meta name="description" content="6 subjects, असीमित questions, Vocab wordbook, हर topic और subtopic में theory notes (text/Markdown/JSON import), तुरंत सही/ग़लत जाँच, topic-wise quiz। सब कुछ आपके browser में — बिना login।">
 <meta name="theme-color" content="#fff8e5">
-<meta name="application-version" content="2026.11-import-fix">
+<meta name="application-version" content="2026.11-question-media">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%234D694E'/%3E%3Cpath d='M7.6 17.5 11.3 6.5h1.5l3.7 11h-1.6l-1-3.1H10.2l-1 3.1zM10.6 13h2.9l-1.4-4.3z' fill='%23FFF3D5'/%3E%3C/svg%3E">
 <style>
 @font-face{
@@ -1242,6 +1242,27 @@ code,pre,.pre,#vocabJsonText,#importJson,#mJson,#thText,.tedit-sec textarea{font
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 }
+/* Per-question attachments. Media is loaded when a question comes near the viewport. */
+.qmedia{margin:10px 0 14px;min-width:0}
+.qmedia-actions,.qm-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.qmedia .btn{gap:6px;font-size:12px;min-height:34px;padding:5px 10px}
+.qmedia .btn svg{width:15px;height:15px;flex:none}
+.qmedia .btn[data-saved="1"]{color:var(--brand);background:var(--brand-soft);border-color:color-mix(in srgb,var(--brand) 32%,var(--line))}
+.qmedia-thumb{display:block;margin-top:10px;padding:6px;width:fit-content;max-width:100%;border:1px solid var(--line);border-radius:var(--r);background:#fff;cursor:zoom-in}
+.qmedia-thumb img,.qm-image img{display:block;width:auto;max-width:100%;height:auto;max-height:340px;object-fit:contain;border-radius:6px}
+.qm-image img{max-height:min(52vh,520px);margin:auto}
+.qm-image{border-radius:var(--r);overflow:hidden;padding:8px;background:#fff;border:1px solid var(--line)}
+.qm-question{overflow-wrap:anywhere;padding:10px 12px;border-left:3px solid var(--brand);background:var(--panel-2);border-radius:var(--r-sm);font-size:13.5px}
+.qm-privacy,.qm-help{color:var(--ink-2);font-size:12.5px}
+.qm-editor{display:grid;gap:12px}
+.qm-editor audio{width:100%;height:44px}
+.qm-status{font-size:13px;color:var(--ink-2);min-height:1.5em;overflow-wrap:anywhere}
+.qm-status.err{color:var(--bad);font-weight:650}
+.qm-status.rec{color:var(--bad);font-weight:750;font-variant-numeric:tabular-nums}
+.qm-editor [hidden],.qmedia [hidden]{display:none!important}
+.qm-delete{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px;background:var(--bad-soft);border-radius:var(--r-sm);font-size:13px}
+.qm-upload{min-width:0;display:grid;gap:6px;font-size:13px}
+.qm-upload input{max-width:100%}
 </style>
 </head>
 <body>
@@ -1857,6 +1878,7 @@ function changeListPage(form,page,step){
   if(!Number.isInteger(next)||next<1||next>Math.ceil(spec.items.length/spec.size)||next===cur)return;
   clearRenderSlots(root);
   root.innerHTML=deco(pageContent(spec,next));
+  syncQuestionMediaView();
   var heading=root.querySelector('[data-perf-heading]');
   if(heading)heading.focus({preventScroll:true});
   root.scrollIntoView({block:'start'});
@@ -1875,7 +1897,7 @@ function mountLazy(details){
     var draw=renderSlots.get(id);
     if(!draw)return;
     renderSlots.delete(id);delete host.dataset.perfLazy;
-    host.innerHTML=deco(draw());return;
+    host.innerHTML=deco(draw());syncQuestionMediaView();return;
   }
 }
 
@@ -2376,6 +2398,7 @@ function route(hashOverride){
   if(typeof hashOverride==='string')currentRouteHash=hashOverride||'#/';
   var newRoute=shownListRoute!==currentRouteHash;
   if(newRoute){
+    if(activeModalCleanup)closeModal();
     shownListRoute=currentRouteHash;
     listPages.clear();expandedQuestionLists.clear();renameCards=false;
   }
@@ -2668,6 +2691,7 @@ function render(){
   lastRenderedRoute=currentRouteHash;
   view.classList.toggle('rename-mode',renameCards);
   view.innerHTML=deco('<div class="page-in'+(entering?' enter':'')+(theme?' subject-page':'')+'"'+(theme?' style="--subject-color:'+theme+';--brand:'+theme+';--brand-2:color-mix(in srgb,'+theme+' 80%,black);--brand-soft:color-mix(in srgb,'+theme+' 16%,var(--panel))"':'')+'>'+html+'</div>');
+  syncQuestionMediaView();
   paintNav();
   if(state.page==='import')bindQuestionImporter(view,null);
 }
@@ -3971,7 +3995,7 @@ function viewRevision(){
           +'<span class="mistake-badge">'+(m.wrongCount||1)+'× ग़लत</span>'
           +(m.subjectName?'<span class="meta-chip">'+esc(m.subjectName)+(m.topicName?' · '+esc(m.topicName):'')+'</span>':'')
         +'</div>'
-        +'<div class="opts">';
+        +questionMediaHTML(m)+'<div class="opts">';
       (m.options||[]).forEach(function(o,oi){
         var isC=oi===m.correct;
         h+='<div class="opt"'+(isC?' data-c="1"':'')+'><span class="key">'+LETTERS[oi]+'</span><span class="lbl">'+esc(o)+'</span><span class="mark">'+(isC?'✓':'')+'</span></div>';
@@ -4007,7 +4031,7 @@ function viewRevision(){
         +'<p class="qtext">'+esc(bq.question)+'</p>'
         +'<div class="qbtns"><button class="mini star-btn on" title="Remove bookmark" data-act="unstar-q" data-bkey="'+esc(bq.key)+'">★</button></div></div>'
         +(bq.subjectName?'<div style="margin:-4px 0 12px"><span class="meta-chip">'+esc(bq.subjectName)+(bq.topicName?' · '+esc(bq.topicName):'')+'</span></div>':'')
-        +'<div class="opts">';
+        +questionMediaHTML(bq)+'<div class="opts">';
       (bq.options||[]).forEach(function(o,oi){
         var isC=oi===bq.correct;
         h+='<div class="opt"'+(isC?' data-c="1"':'')+'><span class="key">'+LETTERS[oi]+'</span><span class="lbl">'+esc(o)+'</span><span class="mark">'+(isC?'✓':'')+'</span></div>';
@@ -4393,7 +4417,7 @@ function qListHTML(sid,tid,qs,subId,subject,hideAnswers){
         +'<button class="mini star-btn'+(starred?' on':'')+'" title="'+(starred?'Unstar':'Bookmark')+'" data-bookmark-key="'+esc(key)+'" aria-pressed="'+starred+'" data-act="toggle-q-star" data-sid="'+sid+'" data-tid="'+tid+'"'+sub+' data-qid="'+q.id+'">'+(starred?'★':'☆')+'</button>'
         +'<button class="mini" title="Edit" data-act="edit-q" data-sid="'+sid+'" data-tid="'+tid+'"'+sub+' data-qid="'+q.id+'">✏️</button>'
         +'<button class="mini danger" title="Delete" data-act="del-q" data-sid="'+sid+'" data-tid="'+tid+'"'+sub+' data-qid="'+q.id+'">🗑</button>'
-      +'</div></div>'+examDetailsHTML(q)+'<div class="opts">';
+      +'</div></div>'+examDetailsHTML(q)+questionMediaHTML(q,subject)+'<div class="opts">';
     q.options.forEach(function(o,oi){
       var isC=oi===q.correct;
       if(state.editMode&&!hideAnswers){
@@ -4836,7 +4860,7 @@ function runnerPractice(){
     +'<span class="track"><i style="width:'+(p.idx/p.queue.length*100)+'%"></i></span>'
     +'<span class="tt">✅ '+p.score+'</span></div>'
     +'<div class="qbox"><div class="qtag" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Practice · '+esc(p.label||(t?t.name:(s?s.name:'Mixed questions')))+'</span><button type="button" class="mini star-btn'+(isQBookmarked(q)?' on':'')+'" data-act="toggle-practice-star" title="'+(isQBookmarked(q)?'Unstar':'Bookmark')+'">'+(isQBookmarked(q)?'★':'☆')+'</button></div>'
-    +'<div class="qtitle">'+esc(q.question)+'</div>'+examDetailsHTML(q)+'<div class="opts">';
+    +'<div class="qtitle">'+esc(q.question)+'</div>'+examDetailsHTML(q)+questionMediaHTML(q,(q._sid&&getSubject(q._sid))||s)+'<div class="opts">';
   q.options.forEach(function(o,oi){
     var cls='opt';
     if(p.answered){
@@ -5122,7 +5146,7 @@ function runnerQuiz(){
     function makeReviewItem(q,i){
       var a=z.answers[i];
       var mk=(a===undefined||a<0)?0:(a===q.correct?MK_RIGHT:MK_WRONG);
-      return {question:q.question,ok:a===q.correct,skipped:(a===undefined||a<0),
+      return {id:q.id,question:q.question,ok:a===q.correct,skipped:(a===undefined||a<0),
               correctText:q.options[q.correct],chosenText:(a>=0?a:null)!=null?q.options[a]:'छोड़ा हुआ',
               explanation:q.explanation,marks:mk};
     }
@@ -5145,7 +5169,7 @@ function runnerQuiz(){
     +'<span class="tt" id="quizTimerWrap">⏱ <span id="quizTimerVal">'+fmtQuizTimer(z)+'</span></span></div>'
     +'<div class="qbox"><div class="qtag" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Quiz · '+esc(z.label||(t?t.name:(s?s.name:'Mixed questions')))
       +' <span class="mkchip">+'+MK_RIGHT+' / '+MK_WRONG+'</span></span><button type="button" class="mini star-btn'+(isQBookmarked(q)?' on':'')+'" data-act="toggle-quiz-star" title="'+(isQBookmarked(q)?'Unstar':'Bookmark')+'">'+(isQBookmarked(q)?'★':'☆')+'</button></div>'
-    +'<div class="qtitle">'+esc(q.question)+'</div>'+examDetailsHTML(q)+'<div class="opts">';
+    +'<div class="qtitle">'+esc(q.question)+'</div>'+examDetailsHTML(q)+questionMediaHTML(q,(q._sid&&getSubject(q._sid))||s)+'<div class="opts">';
   q.options.forEach(function(o,oi){
     h+='<button class="opt'+(z.chosen===oi?' picked':'')+'" data-act="qpick" aria-pressed="'+(z.chosen===oi)+'" data-oi="'+oi+'">'
       +'<span class="key">'+LETTERS[oi]+'</span><span class="lbl">'+esc(o)+'</span>'
@@ -5204,7 +5228,7 @@ function resultCard(o){
             :(ok?'सही उत्तर':'सही: <b>'+esc(r.correctText)+'</b> · आपका: <s>'+esc(r.chosenText)+'</s>'))+'</div>';
       }
       if(r.explanation)h+='<div class="ans">💡 '+esc(r.explanation)+'</div>';
-      h+='</div>';
+      h+=questionMediaHTML(r)+'</div>';
       });
       return h+'</div>';
     });
@@ -5266,9 +5290,10 @@ function viewImport(){
     +'<h3 style="font-size:16px;font-weight:750;margin-bottom:12px">⬇ Export &amp; Backup</h3>'
     +'<div class="row-c" style="justify-content:flex-start">'
       +'<button class="btn primary" data-act="export-all">⬇ Full backup (JSON)</button>'
+      +'<button class="btn ghost" data-act="export-all-text">Text-only backup</button>'
       +'<button class="btn ghost" data-act="export-all-legacy">Format दिखाएँ</button>'
     +'</div>'
-    +'<p style="font-size:12.5px;color:var(--ink-2);margin-top:12px;line-height:1.6">Backup file सुरक्षित रखें — दूसरे phone/laptop पर ले जाकर वापस import कर सकते हैं। Data सिर्फ़ इसी browser में सुरक्षित रहता है।</p>'
+    +'<p style="font-size:12.5px;color:var(--ink-2);margin-top:12px;line-height:1.6">Full backup में saved voice notes और images भी हैं। Backup file निजी रखें। Restore के लिए ऊपर <b>JSON file चुनें → Import करें</b>। बिना attachments के लिए Text-only backup लें।</p>'
     +'</div>';
 
   h+='<div class="panel" style="padding:24px;border-color:var(--bad-line)">'
@@ -5283,8 +5308,14 @@ function viewImport(){
 /* ============================================================
    MODALS
 ============================================================ */
-function closeModal(){modalRoot.innerHTML='';document.body.style.overflow='';}
+var activeModalCleanup=null;
+function cleanActiveModal(){
+  var done=activeModalCleanup;activeModalCleanup=null;
+  if(done)done();
+}
+function closeModal(){cleanActiveModal();modalRoot.innerHTML='';document.body.style.overflow='';}
 function openModal(html,wide){
+  cleanActiveModal();
   modalRoot.innerHTML='<div class="overlay" data-overlay="1"><div class="modal" '+(wide?'style="max-width:600px"':'')+'>'+html+'</div></div>';
   document.body.style.overflow='hidden';
   var ov=modalRoot.querySelector('.overlay');
@@ -5462,9 +5493,15 @@ function bindQuestionImporter(root,target){
   function appendLine(message){var line=document.createElement('p');line.textContent=message;status.appendChild(line);}
   function clearSelectedFile(){readToken++;selectedText=null;file.value='';submit.disabled=false;}
   function showResult(result,summary){
-    updateStatus((result.error||!importChanged(result))?'error':'ok',summary);
+    var restored=result.mediaRestore;
+    updateStatus((result.error||(restored&&restored.error)||(!importChanged(result)&&!(restored&&restored.kept)))?'error':'ok',summary);
     if(result.error)appendLine(result.error);
-    if(!importChanged(result)&&!result.error&&!result.invalid&&!result.duplicates){
+    if(restored){
+      if(restored.error)appendLine(restored.error);
+      if(restored.kept)appendLine(restored.kept+' existing voice notes/images नहीं बदले गए।');
+      if(restored.skipped)appendLine(restored.skipped+' attachments match नहीं हुए या valid नहीं थे।');
+    }
+    if(!importChanged(result)&&!result.error&&!result.invalid&&!result.duplicates&&!restored){
       appendLine('कोई सवाल नहीं मिला। questions की list या एक question object दें। हर सवाल में question और कम से कम 2 options चाहिए।');
     }
     result.details.forEach(appendLine);
@@ -5515,18 +5552,25 @@ function bindQuestionImporter(root,target){
     ]},null,2);
     updateStatus('info','Sample तैयार है। Import करें दबाएँ।');
   });
-  submit.addEventListener('click',function(){
+  submit.addEventListener('click',async function(){
     var text=(selectedText===null?area.value:selectedText).trim();
     if(!text){updateStatus('error','पहले JSON file चुनें या questions का JSON paste करें।');return;}
     var data;
     try{data=parseQuestionPayload(text);}
     catch(e){updateStatus('error','JSON पढ़ा नहीं गया। सही JSON file या code block दें।');appendLine(e.message);return;}
     var result=importData(data,target&&target.sid,target&&target.tid,target&&target.subId,!!(scope&&scope.checked));
-    var summary=importToast(result);
     if(importChanged(result))save();
+    if(result.mediaPack!==undefined){
+      submit.disabled=area.disabled=file.disabled=true;if(sample)sample.disabled=true;
+      updateStatus('info','Voice notes और images restore हो रहे हैं…');
+      result.mediaRestore=await restoreQuestionMedia(result.mediaPack,result.mediaTargets);
+      if(!status.isConnected)return;
+      submit.disabled=area.disabled=file.disabled=false;if(sample)sample.disabled=false;
+    }
+    var summary=importToast(result);
     var dest=result.targets[0];
     if(target&&result.targets.length===1&&dest.sid===target.sid&&dest.tid===target.tid&&dest.subId===(target.subId||'')
-        &&!result.error&&!result.invalid&&!result.defaultAnswers){
+        &&!result.error&&!result.invalid&&!result.defaultAnswers&&!result.mediaRestore){
       closeModal();openImportedQuestions(dest);toast(summary);
       return;
     }
@@ -6154,6 +6198,8 @@ function cleanQuestions(source,onInvalid,onDefault){
       explanation:importName(f,['explanation','explain','reason','solution','व्याख्या']),hint:importName(f,['hint']),
       examName:importName(f,['examname','exam']),examDate:importName(f,['examdate','date']),examShift:importName(f,['examshift','shift']),
       createdAt:Number.isFinite(created)&&created>0?created:Date.now()});
+    var mediaRef=mediaReference(f.mediaref);
+    if(mediaRef)out[out.length-1]._incomingMediaRef=mediaRef;
   }
   visit(source,0,false);
   return out;
@@ -6246,7 +6292,7 @@ function questionDedupKey(q){
   var options=(Array.isArray(q.options)?q.options:[]).map(normQText).filter(Boolean).sort();
   return JSON.stringify([stem,options]);
 }
-function importChanged(r){return !!(r.added||r.topics||r.theory||r.vocab||r.tricks||r.study);}
+function importChanged(r){return !!(r.added||r.topics||r.theory||r.vocab||r.tricks||r.study||(r.mediaRestore&&r.mediaRestore.added));}
 function importToast(r){
   var counts=[r.added+' questions जुड़े'];
   if(r.duplicates)counts.push(r.duplicates+' duplicates छोड़े');
@@ -6256,15 +6302,30 @@ function importToast(r){
   if(r.tricks)counts.push(r.tricks+' trick sections');
   if(r.study)counts.push(r.study+' study records');
   if(r.topics)counts.push(r.topics+' नए topics/sections');
+  if(r.mediaRestore&&r.mediaRestore.added)counts.push(r.mediaRestore.added+' attachments restore हुए');
   return counts.join(' · ');
 }
 
 function importData(rawData,sid,tid,subId,subjectWide){
   var data=unwrapQuestionPayload(rawData);
+  var mediaPack=isImportRecord(data)&&Object.hasOwn(data,'questionMedia')?data.questionMedia:undefined;
+  var mediaTargets=new Map(), mediaRefs=new Set(), mediaMatched=new WeakMap();
+  if(mediaPack&&mediaPack.version===1&&Array.isArray(mediaPack.entries))mediaPack.entries.forEach(function(entry){
+    var ref=entry&&mediaReference(entry.ref);if(ref)mediaRefs.add(ref);
+  });
+  function linkMedia(ref,q){
+    if(!q||!q.id)return;
+    if(!mediaTargets.has(ref))mediaTargets.set(ref,new Set());
+    mediaTargets.get(ref).add(String(q.id));mediaMatched.set(q,ref);
+  }
+  function remapMediaSnapshot(row){
+    var matches=mediaTargets.get(String(row.id||''));
+    return matches&&matches.size===1?Object.assign({},row,{id:matches.values().next().value}):row;
+  }
   var added=0,newTopics=0,tAdded=0,duplicates=0,vAdded=0,trAdded=0,studyAdded=0,invalid=0,defaultAnswers=0;
   var destinations=new Map(), details=[], targetError='';
   function res(){return {added:added,topics:newTopics,theory:tAdded,duplicates:duplicates,vocab:vAdded,tricks:trAdded,study:studyAdded,
-    invalid:invalid,defaultAnswers:defaultAnswers,details:details,targets:Array.from(destinations.values()),error:targetError};}
+    invalid:invalid,defaultAnswers:defaultAnswers,details:details,targets:Array.from(destinations.values()),error:targetError,mediaPack:mediaPack,mediaTargets:mediaTargets};}
   function readQuestions(data){
     return cleanQuestions(data,function(text,reason){
       invalid++;
@@ -6272,32 +6333,55 @@ function importData(rawData,sid,tid,subId,subjectWide){
     },function(){defaultAnswers++;});
   }
   var seenByBox=new WeakMap();
-  function seenSet(subject,box){
-    var scope=subjectWide?subject:box;
+  function rememberQuestion(index,key,q){
+    if(!key)return;
+    if(!index.has(key))index.set(key,[q]);
+    else if(mediaRefs.size)index.get(key).push(q);
+  }
+  function seenSet(subject,box,acrossSubject){
+    var scope=acrossSubject?subject:box;
     if(seenByBox.has(scope))return seenByBox.get(scope);
-    var keys=new Set();
-    function add(q){var k=questionDedupKey(q);if(k)keys.add(k);}
-    if(subjectWide)subject.topics.forEach(function(t){topicAllQ(t).forEach(add);});
+    var keys=new Map();
+    function add(q){rememberQuestion(keys,questionDedupKey(q),q);}
+    if(acrossSubject)subject.topics.forEach(function(t){topicAllQ(t).forEach(add);});
     else (box.questions||[]).forEach(add);
     seenByBox.set(scope,keys);
     return keys;
   }
+  function existingMediaDestination(ref,q,choices){
+    if(!choices||!choices.length)return null;
+    function available(item){var used=mediaMatched.get(item);return !used||used===ref;}
+    return choices.find(function(item){return String(item.id)===ref&&available(item);})
+      ||choices.find(function(item){return item.createdAt===q.createdAt&&available(item);})
+      ||choices.find(available)||null;
+  }
   function addTo(subject,topic,box,qs){
     if(!subject||!topic||!box||!qs.length)return;
     if(!Array.isArray(box.questions))box.questions=[];
-    var seen=seenSet(subject,box), sub=box===topic?'':box.id;
+    var seen=seenSet(subject,box,subjectWide), sub=box===topic?'':box.id;
+    var canLink=mediaRefs.size&&eligibleMediaSubject(subject);
     var destKey=questionListKey(subject.id,topic.id,sub), dest=destinations.get(destKey);
     qs.forEach(function(q){
-      var key=questionDedupKey(q);
-      if(key&&seen.has(key)){duplicates++;return;}
+      var ref=q._incomingMediaRef;delete q._incomingMediaRef;
+      var attach=canLink&&mediaRefs.has(ref), key=questionDedupKey(q);
+      if(key&&seen.has(key)){
+        if(!attach){duplicates++;return;}
+        var local=subjectWide?seenSet(subject,box,false):seen;
+        var match=existingMediaDestination(ref,q,local.get(key));
+        if(match){duplicates++;linkMedia(ref,match);return;}
+        if(subjectWide){duplicates++;return;} // Don't attach to an unrelated copy in another chapter.
+        // Each media-bearing source row is distinct, even if its text and options are identical.
+      }
       if(!dest){
         var parent=sub?parentChapter(topic,sub):null;
         var path=[subject.name,topic.name];if(parent)path.push(parent.name);if(sub)path.push(box.name);
         dest={sid:subject.id,tid:topic.id,subId:sub,firstIndex:box.questions.length,firstQuestionId:q.id,added:0,path:path.join(' → ')};
         destinations.set(destKey,dest);
       }
-      if(key)seen.add(key);
+      rememberQuestion(seen,key,q);
+      if(subjectWide&&seenByBox.has(box))rememberQuestion(seenByBox.get(box),key,q);
       box.questions.push(q);added++;dest.added++;
+      if(attach)linkMedia(ref,q);
     });
   }
   function addTheory(box,sections){
@@ -6463,7 +6547,7 @@ function importData(rawData,sid,tid,subId,subjectWide){
         if(!m||!m.question||!Array.isArray(m.options))return;
         var k=m.key||studyQKey(m);
         if(!k||mSeen[k])return;mSeen[k]=1;
-        DB.mistakes.push(Object.assign({},m,{key:k}));studyAdded++;
+        DB.mistakes.push(Object.assign({},remapMediaSnapshot(m),{key:k}));studyAdded++;
       });
     }
     if(data.bookmarks&&typeof data.bookmarks==='object'){
@@ -6474,7 +6558,7 @@ function importData(rawData,sid,tid,subId,subjectWide){
           if(!b||!b.question||!Array.isArray(b.options))return;
           var k=b.key||studyQKey(b);
           if(!k||bqSeen[k])return;bqSeen[k]=1;
-          DB.bookmarks.questions.push(Object.assign({},b,{key:k}));studyAdded++;
+          DB.bookmarks.questions.push(Object.assign({},remapMediaSnapshot(b),{key:k}));studyAdded++;
         });
       }
       if(Array.isArray(data.bookmarks.vocab)){
@@ -6541,26 +6625,27 @@ function importData(rawData,sid,tid,subId,subjectWide){
 }
 
 /* export */
-function plainQ(q){
+function plainQ(q,refs){
   var o={question:q.question,options:q.options,correct:q.correct,explanation:q.explanation,hint:q.hint||'',examName:q.examName||'',examDate:q.examDate||'',examShift:q.examShift||''};
   if(q.createdAt)o.createdAt=q.createdAt;
+  if(refs&&refs.has(String(q.id)))o.mediaRef=String(q.id);
   return o;
 }
-function plainTopic(t){
+function plainTopic(t,refs){
   var o={name:t.name};
   if(tCount(t))o.theory=theoryOf(t).map(function(x){return {title:x.title||'',content:x.content||''};});
-  o.questions=(t.questions||[]).map(plainQ);
+  o.questions=(t.questions||[]).map(function(q){return plainQ(q,refs);});
   if(subsOf(t).length)o.subs=subsOf(t).map(function(sb){
     var so={name:sb.name};
     if(tCount(sb))so.theory=theoryOf(sb).map(function(x){return {title:x.title||'',content:x.content||''};});
-    so.questions=(sb.questions||[]).map(plainQ);
-    if((sb.types||[]).length)so.types=sb.types.map(function(type){return {name:type.name,questions:(type.questions||[]).map(plainQ),theory:theoryOf(type).map(function(x){return {title:x.title||'',content:x.content||''};})};});
+    so.questions=(sb.questions||[]).map(function(q){return plainQ(q,refs);});
+    if((sb.types||[]).length)so.types=sb.types.map(function(type){return {name:type.name,questions:(type.questions||[]).map(function(q){return plainQ(q,refs);}),theory:theoryOf(type).map(function(x){return {title:x.title||'',content:x.content||''};})};});
     return so;
   });
   return o;
 }
-function plainSubject(s){
-  var o={name:s.name,topics:s.topics.map(plainTopic)};
+function plainSubject(s,refs){
+  var o={name:s.name,topics:s.topics.map(function(t){return plainTopic(t,refs);})};
   if(Array.isArray(s.vocabWords)&&s.vocabWords.length){
     o.vocabWords=s.vocabWords.map(function(w){return {word:w.word,meaning:w.meaning};});
   }
@@ -6583,14 +6668,19 @@ function download(name,obj){
     toast('Download शुरू: '+name);
   }catch(e){toast('Download block हो गया — file browser में खोलें',true);}
 }
-function exportAll(){
+function fullBackupPayload(refs){
   ensureStudyData();
-  var payload={subjects:DB.subjects.map(plainSubject)};
+  var payload={subjects:DB.subjects.map(function(s){return plainSubject(s,refs);})};
   if(DB.tricks&&Object.keys(DB.tricks).length)payload.tricks=DB.tricks;
   if(DB.mistakes.length)payload.mistakes=DB.mistakes;
   if(DB.bookmarks.questions.length||DB.bookmarks.vocab.length)payload.bookmarks=DB.bookmarks;
   if(Object.keys(DB.progress.daily).length||DB.progress.history.length||Object.keys(DB.progress.topics).length)payload.progress=DB.progress;
-  download('studybook-backup.json',payload);
+  return payload;
+}
+function exportAll(withMedia){
+  if(withMedia===false){download('studybook-backup-text.json',fullBackupPayload(null));return;}
+  var ids=new Set();forEachLibraryQuestion(function(q){if(q&&q.id)ids.add(String(q.id));});
+  downloadWithQuestionMedia('studybook-backup.json',fullBackupPayload,ids);
 }
 
 /* ============================================================
@@ -7064,10 +7154,10 @@ document.addEventListener('click',function(e){
       break;
     case 'del-topic': {
       var tt=getTopic(sid,tid);if(!tt)break;
-      openConfirm('Topic delete करें?','"'+tt.name+'" और उसके '+topicQuestionCount(tt)+' questions हमेशा के लिए हट जाएँगे।',function(){
+      openConfirm('Topic delete करें?','"'+tt.name+'" और उसके '+topicQuestionCount(tt)+' questions और उनके voice notes/images हमेशा के लिए हट जाएँगे।',function(){
         var s=getSubject(sid);
         s.topics=s.topics.filter(function(x){return x.id!==tid;});
-        save();toast('Topic delete हो गया');
+        deleteMediaFor(topicAllQ(tt));save();toast('Topic delete हो गया');
         if(state.page==='topic')goto('#/subject/'+sid);else render();
       });
       break;
@@ -7111,7 +7201,8 @@ document.addEventListener('click',function(e){
       var tD=getTopic(sid,tid), sbD=tD?getSub(tD,el.dataset.sub):null;
       if(!sbD)break;
       var parD=parentChapter(tD,sbD.id);
-      openConfirm((parD?'Topic':'Subtopic')+' delete करें?','"'+sbD.name+'" और उसके '+subQ(sbD)+' questions हमेशा के लिए हट जाएँगे।',function(){
+      openConfirm((parD?'Topic':'Subtopic')+' delete करें?','"'+sbD.name+'" और उसके '+subQ(sbD)+' questions और उनके voice notes/images हमेशा के लिए हट जाएँगे।',function(){
+        deleteMediaFor(subAllQ(sbD));
         if(parD){
           parD.types=(parD.types||[]).filter(function(x){return x.id!==sbD.id;});
           save();toast('Topic delete हो गया');
@@ -7127,15 +7218,22 @@ document.addEventListener('click',function(e){
       break;
     }
 
+    case 'qmedia-voice':
+    case 'qmedia-image': {
+      var mediaSource=questionMediaSource(el.dataset.qid);
+      if(!mediaSource){toast('यह question अब library में नहीं है।',true);break;}
+      if(act==='qmedia-voice')openVoiceNote(mediaSource);else openImageNote(mediaSource);
+      break;
+    }
     case 'add-q': openQuestionModal(sid,tid,null,el.dataset.sub||null); break;
     case 'edit-q': openQuestionModal(sid,tid,el.dataset.qid,el.dataset.sub||null); break;
     case 'del-q': {
       var t2=getTopic(sid,tid);
       var box2=containerOf(t2,el.dataset.sub);
       var qq=(box2.questions||[]).filter(function(x){return x.id===el.dataset.qid;})[0];
-      openConfirm('Question delete करें?','यह question हमेशा के लिए हट जाएगा:\n"'+(qq?qq.question.slice(0,90):'')+'"',function(){
+      openConfirm('Question delete करें?','यह question और उसके attachments हमेशा के लिए हट जाएँगे:\n"'+(qq?qq.question.slice(0,90):'')+'"',function(){
         box2.questions=box2.questions.filter(function(x){return x.id!==el.dataset.qid;});
-        save();toast('Question delete हो गया');render();
+        if(qq)deleteMediaFor([qq]);save();toast('Question delete हो गया');render();
       });
       break;
     }
@@ -7232,7 +7330,7 @@ document.addEventListener('click',function(e){
       }else if(p.mode==='mistakes'){
         if(removeMistakeByKey(studyQKey(q)))toast('✅ Mistake clear हो गई!');
       }
-      p.log.push({question:q.question,ok:ok,correctText:q.options[q.correct],chosenText:q.options[pick],explanation:q.explanation});
+      p.log.push({id:q.id,question:q.question,ok:ok,correctText:q.options[q.correct],chosenText:q.options[pick],explanation:q.explanation});
       if(ok)confetti(16);
       render();
       break;
@@ -7412,21 +7510,24 @@ document.addEventListener('click',function(e){
     case 'export-topic': {
       var s5=getSubject(sid),t5=getTopic(sid,tid);
       if(t5){
-        var pt5=plainTopic(t5);
-        var ex5={subject:s5.name,topic:t5.name};
-        if(pt5.theory)ex5.theory=pt5.theory;
-        ex5.questions=pt5.questions;
-        if(pt5.subs)ex5.subs=pt5.subs;
-        download(slug(s5.name)+'-'+slug(t5.name)+'.json',ex5);
+        var topicIds=new Set(topicAllQ(t5).map(function(q){return String(q.id);}));
+        downloadWithQuestionMedia(slug(s5.name)+'-'+slug(t5.name)+'.json',function(refs){
+          var pt5=plainTopic(t5,refs);
+          return {subject:s5.name,topic:t5.name,questions:pt5.questions,theory:pt5.theory,subs:pt5.subs};
+        },topicIds);
       }
       break;
     }
     case 'export-subject': {
       var s6=getSubject(sid);
-      if(s6)download(slug(s6.name)+'.json',{subjects:[plainSubject(s6)]});
+      if(s6){
+        var subjectIds=new Set(allQuestions(s6).map(function(q){return String(q.id);}));
+        downloadWithQuestionMedia(slug(s6.name)+'.json',function(refs){return {subjects:[plainSubject(s6,refs)]};},subjectIds);
+      }
       break;
     }
     case 'export-all': exportAll(); break;
+    case 'export-all-text': exportAll(false); break;
     case 'export-all-legacy': {
       var guide=document.getElementById('jsonFormatGuide');
       if(guide&&guide.scrollIntoView){guide.scrollIntoView({behavior:'smooth',block:'start'});}
@@ -7434,7 +7535,8 @@ document.addEventListener('click',function(e){
       break;
     }
     case 'reset-all':
-      openConfirm('सारा data reset करें?','आपके सारे subjects, topics, vocab words, tricks और questions हट जाएँगे और demo data वापस आ जाएगा। पहले backup ले लें!',function(){
+      openConfirm('सारा data reset करें?','आपके subjects, questions, voice notes, images और बाकी study data हट जाएँगे। पहले Full backup लें!',function(){
+        var removed=[];forEachLibraryQuestion(function(q){removed.push(q);});deleteMediaFor(removed);
         storageLocked=false;DB=seed();ensureStudyData();ensureDemoTheory();save();state.editMode=false;toast('Data reset हो गया');goto('#/');
       });
       break;
@@ -7746,6 +7848,7 @@ document.addEventListener('keydown',function(e){
   }
   if(modalRoot.firstElementChild)return;
   if(e.target&&/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;
+  if((e.key==='Enter'||e.key===' ')&&e.target.closest&&e.target.closest('.qmedia'))return;
   var n=parseInt(e.key,10);
   if(state.page==='practice'&&state.practice){
     var p=state.practice;
@@ -7840,6 +7943,7 @@ function startHourlyMessages(){
 }
 
 function showWelcomeModal(){
+  if(modalRoot.firstElementChild)return;
   var html='<div class="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">'
     +'<button class="mini" data-act="close-modal" aria-label="बंद करें" style="position:absolute;right:13px;top:13px">✕</button>'
     +'<div class="welcome-spark">✨</div><p class="welcome-kicker">AYUSH~PREP में स्वागत है</p>'
@@ -7850,6 +7954,570 @@ function showWelcomeModal(){
   var welcomeBox=modalRoot.querySelector('.modal');
   if(welcomeBox){welcomeBox.style.maxWidth='460px';welcomeBox.style.width='calc(100% - 28px)';}
   setTimeout(function(){confettiBurst(window.innerWidth/2,Math.min(window.innerHeight*.22,220),38);},180);
+}
+
+/* ============================================================
+   PER-QUESTION MEDIA — offline Blobs, not part of localStorage
+============================================================ */
+var QUESTION_MEDIA_DB='ayush-prep:question-media:v1';
+var QUESTION_MEDIA_STORE='attachments';
+var MAX_VOICE_SECONDS=300, MAX_VOICE_BYTES=5*1024*1024;
+var MAX_IMAGE_BYTES=3*1024*1024, MAX_IMAGE_INPUT=20*1024*1024;
+var MAX_MEDIA_BACKUP=80*1024*1024;
+var mediaDbPromise=null, mediaQuestionIndex=null, mediaIndexVersion=-1;
+var mediaMounts=new Map(), mediaObserver=null;
+var MEDIA_LIBRARY_HELP='Question bank अभी browser में save नहीं हुआ। Full backup लें और storage की जगह व permission जाँचें।';
+function canSaveMediaLibrary(){
+  if(!storageAvailable||storageLocked)return false;
+  if(savePending)flushSave();
+  return !storageMessage;
+}
+var MEDIA_STORAGE_HELP='Voice notes और images save करने के लिए HTML डाउनलोड करके Chrome या Edge में खोलें। इस preview या browser में media storage उपलब्ध नहीं है।';
+var QM_MIC='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0m-7 7v3m-3 0h6"/></svg>';
+var QM_IMAGE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="1.4"/><path d="m5 18 5-5 3 3 3-5 4 7"/></svg>';
+function eligibleMediaSubject(s){
+  return /^(maths?|mathematics|reasoning|english|गणित|तर्कशक्ति|रीजनिंग|अंग्रेज़ी|अंग्रेजी)$/i.test(String((s&&s.name)||'').trim());
+}
+function forEachLibraryQuestion(fn){
+  DB.subjects.forEach(function(s){
+    (s.topics||[]).forEach(function(t){
+      (t.questions||[]).forEach(function(q){fn(q,s);});
+      (t.subs||[]).forEach(function(ch){
+        (ch.questions||[]).forEach(function(q){fn(q,s);});
+        (ch.types||[]).forEach(function(type){(type.questions||[]).forEach(function(q){fn(q,s);});});
+      });
+    });
+  });
+}
+function questionMediaSource(id){
+  if(!id)return null;
+  if(!mediaQuestionIndex||libraryVersion!==mediaIndexVersion){
+    mediaIndexVersion=libraryVersion;
+    mediaQuestionIndex=new Map();
+    forEachLibraryQuestion(function(q,s){
+      if(q&&q.id&&eligibleMediaSubject(s))mediaQuestionIndex.set(String(q.id),q);
+    });
+  }
+  return mediaQuestionIndex.get(String(id))||null;
+}
+function mediaIDB(){
+  if(!mediaDbPromise){
+    mediaDbPromise=new Promise(function(resolve,reject){
+      if(!window.indexedDB){reject(new Error('IndexedDB unavailable'));return;}
+      var req=indexedDB.open(QUESTION_MEDIA_DB,1);
+      req.onupgradeneeded=function(){
+        if(!req.result.objectStoreNames.contains(QUESTION_MEDIA_STORE))req.result.createObjectStore(QUESTION_MEDIA_STORE,{keyPath:'id'});
+      };
+      req.onerror=function(){reject(req.error||new Error('Cannot open media storage'));};
+      req.onsuccess=function(){
+        var db=req.result;
+        db.onversionchange=function(){db.close();mediaDbPromise=null;};
+        db.onclose=function(){mediaDbPromise=null;};
+        resolve(db);
+      };
+    }).catch(function(error){mediaDbPromise=null;throw error;});
+  }
+  return mediaDbPromise;
+}
+async function readQuestionMedia(id){
+  var db=await mediaIDB();
+  return new Promise(function(resolve,reject){
+    var request=db.transaction(QUESTION_MEDIA_STORE,'readonly').objectStore(QUESTION_MEDIA_STORE).get(String(id));
+    request.onsuccess=function(){resolve(request.result||null);};
+    request.onerror=function(){reject(request.error);};
+  });
+}
+async function allQuestionMedia(){
+  var db=await mediaIDB();
+  return new Promise(function(resolve,reject){
+    var request=db.transaction(QUESTION_MEDIA_STORE,'readonly').objectStore(QUESTION_MEDIA_STORE).getAll();
+    request.onsuccess=function(){resolve(request.result||[]);};
+    request.onerror=function(){reject(request.error);};
+  });
+}
+async function updateQuestionMedia(id,change){
+  id=String(id);
+  var db=await mediaIDB();
+  return new Promise(function(resolve,reject){
+    var tx=db.transaction(QUESTION_MEDIA_STORE,'readwrite'), table=tx.objectStore(QUESTION_MEDIA_STORE);
+    var next=null, problem=null, req=table.get(id);
+    tx.oncomplete=function(){resolve(next);};
+    tx.onabort=function(){reject(problem||tx.error||new Error('Media transaction aborted'));};
+    req.onsuccess=function(){
+      try{
+        next=change(req.result||{id:id});
+        if(next&&(next.voice||next.image)){next.id=id;table.put(next);}
+        else{next=null;table.delete(id);}
+      }catch(error){problem=error;tx.abort();}
+    };
+  });
+}
+async function deleteMediaFor(questions){
+  var ids=new Set();
+  questions.forEach(function(q){if(q&&q.id)ids.add(String(q.id));});
+  if(!ids.size)return;
+  try{
+    var db=await mediaIDB();
+    await new Promise(function(resolve,reject){
+      var tx=db.transaction(QUESTION_MEDIA_STORE,'readwrite'), table=tx.objectStore(QUESTION_MEDIA_STORE);
+      tx.oncomplete=resolve;tx.onabort=function(){reject(tx.error);};
+      ids.forEach(function(id){table.delete(id);});
+    });
+  }catch(error){if(storageAvailable)toast('Attachments हटाने में समस्या आई।',true);}
+}
+function questionMediaHTML(q,subject){
+  if(!q||!q.id||!(subject?eligibleMediaSubject(subject):questionMediaSource(q.id)))return '';
+  var id=esc(q.id);
+  return '<div class="qmedia" data-qmedia-key="'+id+'"><div class="qmedia-actions">'
+    +'<button type="button" class="btn ghost sm" data-act="qmedia-voice" data-qid="'+id+'">'+QM_MIC+'<span>Voice note</span></button>'
+    +'<button type="button" class="btn ghost sm" data-act="qmedia-image" data-qid="'+id+'">'+QM_IMAGE+'<span>Add image</span></button>'
+    +'</div><button type="button" class="qmedia-thumb" data-act="qmedia-image" data-qid="'+id+'" aria-label="Question image बड़ी देखें" hidden></button></div>';
+}
+function revokeMediaURL(url){if(url)URL.revokeObjectURL(url);}
+function paintQuestionMedia(node,tracked,value){
+  var thumb=node.querySelector('.qmedia-thumb'), voice=node.querySelector('[data-act="qmedia-voice"]'), image=node.querySelector('.qmedia-actions [data-act="qmedia-image"]');
+  voice.firstElementChild.nextElementSibling.textContent=value&&value.voice?'Play voice note':'Voice note';
+  voice.dataset.saved=value&&value.voice?'1':'0';
+  image.firstElementChild.nextElementSibling.textContent=value&&value.image?'View image':'Add image';
+  image.dataset.saved=value&&value.image?'1':'0';
+  if(tracked.blob===(value&&value.image||null))return;
+  thumb.replaceChildren();thumb.hidden=true;
+  revokeMediaURL(tracked.url);tracked.url='';tracked.blob=value&&value.image||null;
+  if(tracked.blob){
+    var pic=document.createElement('img');
+    pic.alt='इस question की attached image';pic.decoding='async';
+    if(value.width&&value.height){pic.width=value.width;pic.height=value.height;}
+    tracked.url=URL.createObjectURL(tracked.blob);pic.src=tracked.url;
+    thumb.appendChild(pic);thumb.hidden=false;
+  }
+}
+function loadMountedMedia(node){
+  var tracked=mediaMounts.get(node);
+  if(!tracked)return;
+  var version=++tracked.version;
+  readQuestionMedia(node.dataset.qmediaKey).then(function(value){
+    if(node.isConnected&&mediaMounts.get(node)===tracked&&tracked.version===version)paintQuestionMedia(node,tracked,value);
+  }).catch(function(){/* individual errors are explained when the editor is opened */});
+}
+function syncQuestionMediaView(){
+  mediaMounts.forEach(function(tracked,node){
+    if(node.isConnected)return;
+    if(mediaObserver)mediaObserver.unobserve(node);
+    revokeMediaURL(tracked.url);mediaMounts.delete(node);
+  });
+  if(!storageAvailable)return;  // opaque preview frames cannot persist media
+  view.querySelectorAll('[data-qmedia-key]').forEach(function(node){
+    if(mediaMounts.has(node))return;
+    mediaMounts.set(node,{version:0,url:'',blob:null});
+    if(!window.IntersectionObserver){loadMountedMedia(node);return;}
+    if(!mediaObserver)mediaObserver=new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if(entry.isIntersecting){mediaObserver.unobserve(entry.target);loadMountedMedia(entry.target);}
+      });
+    },{rootMargin:'280px 0px'});
+    mediaObserver.observe(node);
+  });
+}
+function refreshQuestionMedia(id,value){
+  mediaMounts.forEach(function(tracked,node){
+    if(node.isConnected&&node.dataset.qmediaKey===String(id)){
+      tracked.version++;
+      if(mediaObserver)mediaObserver.unobserve(node);
+      paintQuestionMedia(node,tracked,value);
+    }
+  });
+}
+window.addEventListener('pagehide',function(){
+  if(activeModalCleanup)closeModal();
+  if(mediaObserver)mediaObserver.disconnect();
+  mediaMounts.forEach(function(tracked){revokeMediaURL(tracked.url);});mediaMounts.clear();
+});
+window.addEventListener('pageshow',function(e){if(e.persisted)syncQuestionMediaView();});
+
+
+function mediaButton(role,label,kind,hidden){
+  return '<button type="button" class="btn '+(kind||'ghost')+' sm" data-qm="'+role+'"'+(hidden?' hidden':'')+'>'+label+'</button>';
+}
+function mediaDeleteHTML(noun){
+  return '<div class="qm-delete" data-qm="confirm" hidden><span>'+noun+' हटाएँ?</span>'
+    +mediaButton('delete','हाँ, हटाएँ','danger')+mediaButton('keep','रखें','ghost')+'</div>';
+}
+function useMediaEditor(q,title,html){
+  var opener=document.activeElement;
+  openModal('<div class="mhead"><h3 id="questionMediaTitle">'+title+'</h3><button type="button" class="mini" data-act="close-modal" aria-label="बंद करें">✕</button></div>'
+    +'<div class="mbody qm-editor"><p class="qm-question">'+esc(q.question)+'</p>'+html
+    +'<p class="qm-status" data-qm="status" role="status" aria-live="polite"></p>'
+    +'<p class="qm-privacy">यह attachment इसी browser में offline save होगा। कहीं upload नहीं होता।</p></div>'
+    +'<div class="mfoot"><button class="btn ghost" data-act="close-modal">बंद करें</button></div>',true);
+  var root=modalRoot.querySelector('.modal');
+  root.setAttribute('role','dialog');root.setAttribute('aria-modal','true');root.setAttribute('aria-labelledby','questionMediaTitle');
+  var state={closed:false,cleanup:null,url:'',blob:null};
+  state.node=function(role){return root.querySelector('[data-qm="'+role+'"]');};
+  state.status=function(text,kind){
+    if(state.closed)return;
+    var label=state.node('status');label.textContent=text;
+    label.classList.toggle('err',kind==='error');label.classList.toggle('rec',kind==='record');
+  };
+  state.preview=function(blob){
+    var player=state.node('preview');
+    if(state.blob===blob)return;
+    if(player.tagName==='AUDIO'&&player.hasAttribute('src'))player.pause();
+    revokeMediaURL(state.url);state.url='';state.blob=blob;
+    if(blob){state.url=URL.createObjectURL(blob);player.src=state.url;}
+    else player.removeAttribute('src');
+  };
+  activeModalCleanup=function(){
+    state.closed=true;
+    var player=state.node('preview');
+    if(player&&player.tagName==='AUDIO'&&player.hasAttribute('src'))player.pause();
+    if(state.cleanup)state.cleanup();
+    revokeMediaURL(state.url);state.url='';state.blob=null;
+    if(opener instanceof HTMLElement)requestAnimationFrame(function(){
+      if(opener.isConnected&&!modalRoot.firstElementChild)opener.focus({preventScroll:true});
+    });
+  };
+  root.addEventListener('keydown',function(e){
+    if(e.key!=='Tab')return;
+    var items=Array.from(root.querySelectorAll('button:not(:disabled), input:not(:disabled), audio[controls]')).filter(function(el){return el.offsetParent!==null;});
+    if(!items.length)return;
+    var first=items[0], last=items[items.length-1];
+    if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+    else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+  });
+  root.querySelector('[data-act="close-modal"]').focus({preventScroll:true});
+  return state;
+}
+function writeMediaError(editor,error){
+  var name=error&&error.name||'';
+  if(name==='QuotaExceededError')editor.status('Browser storage भर गया। पहले backup लें या पुराने attachments हटाएँ। आपका पिछला attachment नहीं बदला।','error');
+  else editor.status('Attachment save नहीं हुआ। Browser storage check करके फिर कोशिश करें। पिछला attachment नहीं बदला।','error');
+}
+function showSavedMediaText(value,key){
+  return value&&value[key]?(key==='voice'?'Voice note'+(value.seconds?' · '+voiceTime(value.seconds):'')+' इस browser में saved है।':'Image इस browser में saved है।'):
+    (key==='voice'?'अभी voice note नहीं है। Record दबाकर शुरू करें।':'अभी image नहीं है। नीचे से एक image चुनें।');
+}
+function voiceTime(total){
+  total=Math.max(0,Math.floor(total));
+  return String(Math.floor(total/60)).padStart(2,'0')+':'+String(total%60).padStart(2,'0');
+}
+function stopMic(stream){if(stream)stream.getTracks().forEach(function(track){track.stop();});}
+function micProblem(error){
+  if(error&&error.name==='NotAllowedError')return 'Mic की permission नहीं मिली। इस file को सीधे Chrome/Edge में खोलें और microphone के लिए Allow चुनें।';
+  if(error&&(error.name==='NotFoundError'||error.name==='DevicesNotFoundError'))return 'Microphone नहीं मिला। Mic connect करके फिर Record दबाएँ।';
+  if(error&&error.name==='NotReadableError')return 'Mic अभी उपलब्ध नहीं है। Mic इस्तेमाल करने वाला दूसरा app बंद करके फिर कोशिश करें।';
+  return 'Microphone से record नहीं हो पाया। Chrome/Edge में microphone settings जाँचें।';
+}
+function makeRecorder(stream){
+  var options=['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/mp4'];
+  var chosen=typeof MediaRecorder.isTypeSupported==='function'?options.find(function(type){return MediaRecorder.isTypeSupported(type);}):'';
+  try{return new MediaRecorder(stream,chosen?{mimeType:chosen,audioBitsPerSecond:40000}:{audioBitsPerSecond:40000});}
+  catch(error){return new MediaRecorder(stream);}
+}
+function openVoiceNote(q){
+  var editor=useMediaEditor(q,'Voice note',
+    '<audio data-qm="preview" controls preload="metadata" hidden></audio>'
+    +'<div class="qm-controls">'+mediaButton('start','● Record','primary',true)
+    +mediaButton('stop','■ Stop','danger',true)+mediaButton('save','Save voice note','primary',true)
+    +mediaButton('discard','Discard draft','ghost',true)+mediaButton('remove','Remove voice note','ghost',true)+'</div>'
+    +mediaDeleteHTML('Saved voice note')+'<p class="qm-help">Max 5 मिनट। नई recording पुराने note की जगह सिर्फ़ Save करने पर लेगी।</p>');
+  var id=String(q.id), saved=null, draft=null, stage='loading', confirming=false;
+  var mic=null, recorder=null, tick=0, limit=0, started=0, ended=0;
+  var supported=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
+  var start=editor.node('start'), stop=editor.node('stop'), saveBtn=editor.node('save'), discard=editor.node('discard'), remove=editor.node('remove');
+  var player=editor.node('preview');
+  player.addEventListener('error',function(){
+    if(player.hasAttribute('src'))editor.status('यह audio नहीं चल पाया। Chrome या Edge में file खोलें, या नया note Record करें।','error');
+  });
+  function clearTimers(){clearInterval(tick);clearTimeout(limit);tick=0;limit=0;}
+  function release(){clearTimers();stopMic(mic);mic=null;}
+  function refresh(){
+    var active=stage==='recording', pending=stage==='asking'||stage==='stopping'||stage==='saving';
+    var blob=draft?draft.blob:(saved&&saved.voice||null);
+    var showPlayer=!active&&stage!=='stopping'&&!!blob;
+    player.hidden=!showPlayer;
+    editor.preview(showPlayer?blob:null);
+    start.hidden=!(stage==='ready'||stage==='asking');start.disabled=pending||!!draft||confirming||!supported;
+    start.textContent=stage==='asking'?'Mic खोल रहे हैं…':saved&&saved.voice?'● Record again':'● Record';
+    stop.hidden=!active;
+    saveBtn.hidden=discard.hidden=!draft;saveBtn.disabled=discard.disabled=pending;
+    remove.hidden=!(stage==='ready'&&saved&&saved.voice&&!draft);remove.disabled=confirming;
+    editor.node('confirm').hidden=!confirming;
+  }
+  function stopRecording(){
+    if(stage!=='recording'||!recorder)return;
+    stage='stopping';ended=performance.now();clearTimers();
+    editor.status('Recording तैयार कर रहे हैं…');refresh();
+    if(recorder.state!=='inactive')recorder.stop();
+  }
+  async function startRecording(){
+    if(stage!=='ready'||draft||!supported)return;
+    confirming=false;stage='asking';editor.status('Microphone permission का इंतज़ार…');refresh();
+    try{
+      var stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      if(editor.closed){stopMic(stream);return;}
+      mic=stream;
+      var rec=makeRecorder(stream), pieces=[], bytes=0, tooBig=false;
+      recorder=rec;
+      rec.ondataavailable=function(event){
+        if(editor.closed||recorder!==rec||!event.data.size)return;
+        bytes+=event.data.size;
+        if(bytes>MAX_VOICE_BYTES){tooBig=true;stopRecording();}
+        else pieces.push(event.data);
+      };
+      rec.onerror=function(){
+        if(editor.closed||recorder!==rec)return;
+        recorder=null;release();stage='ready';draft=null;
+        editor.status('Recording रुक गई। पिछला saved note नहीं बदला।','error');refresh();
+      };
+      rec.onstop=function(){
+        if(editor.closed||recorder!==rec)return;
+        recorder=null;release();stage='ready';
+        var blob=new Blob(pieces,{type:rec.mimeType||(pieces[0]&&pieces[0].type)||'audio/webm'});
+        if(tooBig||!blob.size){editor.status(tooBig?'Recording बहुत बड़ी है। छोटा note रिकॉर्ड करें।':'Audio capture नहीं हुआ। फिर Record दबाएँ।','error');refresh();return;}
+        draft={blob:blob,seconds:Math.min(MAX_VOICE_SECONDS,Math.max(0,Math.round(((ended||performance.now())-started)/1000)))};
+        editor.status('Draft '+voiceTime(draft.seconds)+' · सुनकर Save voice note दबाएँ।');refresh();
+      };
+      rec.start(500);started=performance.now();ended=0;stage='recording';
+      function updateTime(){editor.status('● Recording  '+voiceTime((performance.now()-started)/1000)+' / 05:00','record');}
+      updateTime();tick=setInterval(updateTime,350);limit=setTimeout(stopRecording,MAX_VOICE_SECONDS*1000);refresh();
+    }catch(error){
+      recorder=null;release();if(editor.closed)return;
+      stage='ready';editor.status(micProblem(error),'error');refresh();
+    }
+  }
+  async function commit(change,success,needsSavedQuestion){
+    if(needsSavedQuestion&&!canSaveMediaLibrary()){editor.status(MEDIA_LIBRARY_HELP,'error');return;}
+    stage='saving';confirming=false;editor.status('Save कर रहे हैं…');refresh();
+    try{
+      var next=await updateQuestionMedia(id,change);
+      refreshQuestionMedia(id,next);
+      if(!editor.closed){saved=next;draft=null;editor.status(success);}
+      toast(success);
+    }catch(error){writeMediaError(editor,error);}
+    if(!editor.closed){stage='ready';refresh();}
+  }
+  start.addEventListener('click',startRecording);stop.addEventListener('click',stopRecording);
+  saveBtn.addEventListener('click',function(){
+    if(stage!=='ready'||!draft)return;
+    var current=draft;
+    commit(function(record){record.voice=current.blob;record.seconds=current.seconds;return record;},'Voice note save हो गया।',true);
+  });
+  discard.addEventListener('click',function(){draft=null;editor.status(showSavedMediaText(saved,'voice'));refresh();});
+  remove.addEventListener('click',function(){confirming=true;refresh();editor.node('delete').focus();});
+  editor.node('keep').addEventListener('click',function(){confirming=false;refresh();remove.focus();});
+  editor.node('delete').addEventListener('click',function(){
+    if(stage!=='ready'||!confirming)return;
+    commit(function(record){delete record.voice;delete record.seconds;return record;},'Voice note हटा दिया गया।');
+  });
+  editor.cleanup=function(){
+    if(recorder&&recorder.state!=='inactive'){
+      recorder.ondataavailable=recorder.onstop=recorder.onerror=null;
+      try{recorder.stop();}catch(error){}
+    }
+    recorder=null;release();draft=null;
+  };
+  editor.status('Saved voice note देख रहे हैं…');
+  (storageAvailable?readQuestionMedia(id):Promise.reject(new Error('Storage unavailable'))).then(function(value){
+    if(editor.closed)return;
+    saved=value;stage='ready';
+    editor.status(supported?showSavedMediaText(saved,'voice'):'इस browser में recording उपलब्ध नहीं है। HTML सीधे Chrome/Edge में खोलें।',supported?'':'error');refresh();
+  }).catch(function(){editor.status(MEDIA_STORAGE_HELP,'error');});
+}
+function decodeImageFromURL(url){
+  return new Promise(function(resolve,reject){
+    var img=new Image();img.onload=function(){resolve(img);};img.onerror=function(){reject(new Error('Image पढ़ी नहीं जा सकी।'))};img.src=url;
+  });
+}
+function encodeCanvas(canvas,quality){
+  return new Promise(function(resolve,reject){
+    canvas.toBlob(function(blob){if(blob)resolve(blob);else reject(new Error('Image तैयार नहीं हो पाई।'));},'image/webp',quality);
+  });
+}
+async function prepareQuestionImage(file){
+  var type=String(file.type||'').toLowerCase();
+  if(!/^image\/(jpeg|png|webp)$/.test(type)&&(type||!/\.(jpe?g|png|webp)$/i.test(file.name)))throw new Error('JPG, PNG या WebP image चुनें।');
+  if(!file.size||file.size>MAX_IMAGE_INPUT)throw new Error('20 MB से छोटी JPG, PNG या WebP image चुनें।');
+  var src=null, url='', canvas=null;
+  try{
+    if(typeof createImageBitmap==='function')try{src=await createImageBitmap(file);}catch(error){}
+    if(!src){url=URL.createObjectURL(file);src=await decodeImageFromURL(url);}
+    var width=src.naturalWidth||src.width, height=src.naturalHeight||src.height;
+    if(!width||!height||width*height>50000000)throw new Error('इस image का resolution बहुत बड़ा है। छोटी copy चुनें।');
+    canvas=document.createElement('canvas');
+    for(var i=0;i<3;i++){
+      var scale=Math.min(1,[1920,1536,1080][i]/Math.max(width,height));
+      canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(height*scale));
+      var ctx=canvas.getContext('2d');ctx.imageSmoothingQuality='high';ctx.drawImage(src,0,0,canvas.width,canvas.height);
+      var blob=await encodeCanvas(canvas,[.9,.82,.75][i]);
+      if(blob.size<=MAX_IMAGE_BYTES)return {blob:blob,width:canvas.width,height:canvas.height};
+    }
+    throw new Error('Image बहुत बड़ी है। इससे छोटी image चुनें।');
+  }finally{
+    revokeMediaURL(url);
+    if(src&&typeof src.close==='function')src.close();
+    if(canvas){canvas.width=0;canvas.height=0;}
+  }
+}
+function openImageNote(q){
+  var editor=useMediaEditor(q,'Question image',
+    '<div class="qm-image" data-qm="frame" hidden><img data-qm="preview" alt="Question की image का preview"></div>'
+    +'<label class="qm-upload" data-qm="upload" hidden><span data-qm="choose">Choose image</span><input type="file" data-qm="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"></label>'
+    +'<div class="qm-controls">'+mediaButton('save','Save image','primary',true)+mediaButton('discard','Discard draft','ghost',true)+mediaButton('remove','Remove image','ghost',true)+'</div>'
+    +mediaDeleteHTML('Saved image')+'<p class="qm-help">JPG, PNG या WebP · 20 MB तक। Smooth loading के लिए बड़ी image हल्की कर दी जाती है।</p>');
+  var id=String(q.id), saved=null, draft=null, ready=false, busy=false, confirming=false;
+  var file=editor.node('file'), saveBtn=editor.node('save'), discard=editor.node('discard'), remove=editor.node('remove');
+  function refresh(){
+    var blob=draft?draft.blob:(saved&&saved.image||null);
+    editor.preview(blob);editor.node('frame').hidden=!blob;
+    editor.node('upload').hidden=!ready;file.disabled=busy||confirming;
+    editor.node('choose').textContent=saved&&saved.image?'Choose replacement image':'Choose image';
+    saveBtn.hidden=discard.hidden=!draft;saveBtn.disabled=discard.disabled=busy;
+    remove.hidden=!(saved&&saved.image&&!draft&&!busy);remove.disabled=confirming;
+    editor.node('confirm').hidden=!confirming;
+  }
+  async function commit(change,success,needsSavedQuestion){
+    if(needsSavedQuestion&&!canSaveMediaLibrary()){editor.status(MEDIA_LIBRARY_HELP,'error');return;}
+    busy=true;confirming=false;editor.status('Save कर रहे हैं…');refresh();
+    try{
+      var next=await updateQuestionMedia(id,change);
+      refreshQuestionMedia(id,next);
+      if(!editor.closed){saved=next;draft=null;editor.status(success);}
+      toast(success);
+    }catch(error){writeMediaError(editor,error);}
+    if(!editor.closed){busy=false;refresh();}
+  }
+  file.addEventListener('change',async function(){
+    var chosen=file.files&&file.files[0];file.value='';if(!chosen||busy)return;
+    busy=true;confirming=false;editor.status('Image तैयार कर रहे हैं…');refresh();
+    try{
+      var result=await prepareQuestionImage(chosen);
+      if(editor.closed)return;
+      draft=result;editor.status('Preview तैयार है। Save image दबाएँ।');
+    }catch(error){editor.status(error.message||'Image नहीं खुली। दूसरी file चुनें।','error');}
+    if(!editor.closed){busy=false;refresh();}
+  });
+  saveBtn.addEventListener('click',function(){
+    if(busy||!draft)return;
+    var current=draft;
+    commit(function(record){record.image=current.blob;record.width=current.width;record.height=current.height;return record;},'Image save हो गई।',true);
+  });
+  discard.addEventListener('click',function(){draft=null;editor.status(showSavedMediaText(saved,'image'));refresh();});
+  remove.addEventListener('click',function(){confirming=true;refresh();editor.node('delete').focus();});
+  editor.node('keep').addEventListener('click',function(){confirming=false;refresh();remove.focus();});
+  editor.node('delete').addEventListener('click',function(){
+    if(busy||!confirming)return;
+    commit(function(record){delete record.image;delete record.width;delete record.height;return record;},'Image हटा दी गई।');
+  });
+  editor.status('Saved image देख रहे हैं…');
+  (storageAvailable?readQuestionMedia(id):Promise.reject(new Error('Storage unavailable'))).then(function(value){
+    if(editor.closed)return;
+    ready=true;saved=value;editor.status(showSavedMediaText(saved,'image'));refresh();
+  }).catch(function(){editor.status(MEDIA_STORAGE_HELP,'error');});
+}
+
+
+/* Portable backups keep media in JSON only for explicit export, not in the bank. */
+var mediaExportBusy=false;
+function mediaReference(ref){return typeof ref==='string'&&ref.length>0&&ref.length<=160?ref:'';}
+function mediaToBase64(blob){
+  return new Promise(function(resolve,reject){
+    var reader=new FileReader();
+    reader.onerror=function(){reject(reader.error);};
+    reader.onload=function(){var value=String(reader.result);resolve(value.slice(value.indexOf(',')+1));};
+    reader.readAsDataURL(blob);
+  });
+}
+async function downloadWithQuestionMedia(name,build,includeIds){
+  if(mediaExportBusy){toast('Backup पहले से तैयार हो रहा है।');return;}
+  mediaExportBusy=true;
+  try{
+    if(!storageAvailable){toast('इस preview में media storage उपलब्ध नहीं है। HTML सीधे browser में खोलें या Text-only backup लें।',true);return;}
+    var entries=[], refs=new Set();
+    var records=(await allQuestionMedia()).filter(function(record){
+      return includeIds.has(String(record.id))&&(record.voice||record.image);
+    });
+    var total=records.reduce(function(n,r){return n+(r.voice?r.voice.size:0)+(r.image?r.image.size:0);},0);
+    if(total>MAX_MEDIA_BACKUP){toast('Attachments 80 MB से ज़्यादा हैं। छोटे Topic exports लें। Text-only backup में attachments नहीं होंगे।',true);return;}
+    if(records.length)toast('Voice notes और images के साथ backup बना रहे हैं…');
+    for(var i=0;i<records.length;i++){
+      var r=records[i], ref=mediaReference(String(r.id));
+      if(!ref)throw new Error('Attachment reference missing');
+      var entry={ref:ref};
+      if(r.voice)entry.voice={type:r.voice.type,data:await mediaToBase64(r.voice),seconds:r.seconds||0};
+      if(r.image)entry.image={type:r.image.type,data:await mediaToBase64(r.image),width:r.width||0,height:r.height||0};
+      entries.push(entry);refs.add(ref);
+    }
+    var payload=build(refs);
+    if(entries.length)payload.questionMedia={version:1,entries:entries};
+    download(name,payload);
+  }catch(error){toast('Media backup तैयार नहीं हुआ। HTML सीधे browser में खोलकर फिर कोशिश करें, या Text-only backup लें।',true);}
+  finally{mediaExportBusy=false;}
+}
+function readBackupBlob(value,kind){
+  if(!value||typeof value.data!=='string'||typeof value.type!=='string'||!value.data.length||value.type.length>120)return null;
+  var type=value.type.split(';')[0].toLowerCase().trim();
+  var permitted=kind==='image'?/^image\/(jpeg|png|webp)$/.test(type):/^(?:audio\/(?:webm|ogg|mp4|mpeg|aac|wav|x-wav|wave)|video\/(?:webm|mp4))$/.test(type);
+  var limit=kind==='image'?MAX_IMAGE_BYTES:MAX_VOICE_BYTES;
+  if(!permitted||value.data.length>4*Math.ceil(limit/3))return null;
+  try{
+    var bytes=atob(value.data);
+    if(!bytes.length||bytes.length>limit)return null;
+    var arr=new Uint8Array(bytes.length);
+    for(var i=0;i<bytes.length;i++)arr[i]=bytes.charCodeAt(i);
+    if(kind==='image'){
+      var valid=type==='image/png'?arr[0]===137&&bytes.slice(1,4)==='PNG':type==='image/jpeg'?arr[0]===255&&arr[1]===216:
+        bytes.slice(0,4)==='RIFF'&&bytes.slice(8,12)==='WEBP';
+      if(!valid)return null;
+    }
+    return new Blob([arr],{type:value.type});
+  }catch(error){return null;}
+}
+async function restoreQuestionMedia(pack,targets){
+  var info={added:0,kept:0,skipped:0,error:''};
+  if(!pack||pack.version!==1||!Array.isArray(pack.entries)){
+    info.error='Voice/image backup का format मान्य नहीं है।';return info;
+  }
+  if(!pack.entries.length)return info;
+  if(!storageAvailable){info.error=MEDIA_STORAGE_HELP;return info;}
+  if(!canSaveMediaLibrary()){info.error=MEDIA_LIBRARY_HELP;return info;}
+  try{
+    await mediaIDB();
+    for(var i=0;i<pack.entries.length;i++){
+      var entry=pack.entries[i], matches=entry&&targets.get(mediaReference(entry.ref));
+      if(!matches||!matches.size){info.skipped++;continue;}
+      var voice=entry.voice?readBackupBlob(entry.voice,'voice'):null;
+      var image=entry.image?readBackupBlob(entry.image,'image'):null;
+      if(entry.voice&&!voice)info.skipped++;
+      if(entry.image&&!image)info.skipped++;
+      if(!voice&&!image)continue;
+      for(var id of matches){
+        // Never overwrite a newer recording or image that is already in this browser.
+        if(!questionMediaSource(id)){info.skipped++;continue;}
+        var delta=0, kept=0;
+        var next=await updateQuestionMedia(id,function(record){
+          if(voice){
+            if(record.voice)kept++;
+            else{record.voice=voice;record.seconds=Math.min(MAX_VOICE_SECONDS,Math.max(0,Math.round(Number(entry.voice.seconds)||0)));delta++;}
+          }
+          if(image){
+            if(record.image)kept++;
+            else{
+              record.image=image;
+              record.width=Math.min(1920,Math.max(0,Math.round(Number(entry.image.width)||0)));
+              record.height=Math.min(1920,Math.max(0,Math.round(Number(entry.image.height)||0)));
+              delta++;
+            }
+          }
+          return record;
+        });
+        info.added+=delta;info.kept+=kept;
+        refreshQuestionMedia(id,next);
+      }
+    }
+  }catch(error){
+    info.error='कुछ attachments restore नहीं हुए। Browser storage, जगह और permission जाँचें।';
+  }
+  return info;
 }
 
 /* init */
@@ -7868,5 +8536,5 @@ startHourlyMessages();
 showStorageStatus();
 })();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5c4988fdd2496b4',t:'MTc5NDk3OTk2MA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5c4988fdd2496b4',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5c5d1bf1e875984',t:'MTc5NDk5Mjc4OA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5c5d1bf1e875984',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
