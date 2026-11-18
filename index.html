@@ -6,7 +6,7 @@
 <title>AYUSH~PREP — आपका Question Bank और Quiz Platform</title>
 <meta name="description" content="6 subjects, असीमित questions, Vocab wordbook, हर topic और subtopic में theory notes (text/Markdown/JSON import), तुरंत सही/ग़लत जाँच, topic-wise quiz। सब कुछ आपके browser में — बिना login।">
 <meta name="theme-color" content="#fff8e5">
-<meta name="application-version" content="2026.11-question-media">
+<meta name="application-version" content="2026.11-inline-voice">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%234D694E'/%3E%3Cpath d='M7.6 17.5 11.3 6.5h1.5l3.7 11h-1.6l-1-3.1H10.2l-1 3.1zM10.6 13h2.9l-1.4-4.3z' fill='%23FFF3D5'/%3E%3C/svg%3E">
 <style>
 @font-face{
@@ -1245,8 +1245,12 @@ code,pre,.pre,#vocabJsonText,#importJson,#mJson,#thText,.tedit-sec textarea{font
 /* Per-question attachments. Media is loaded when a question comes near the viewport. */
 .qmedia{margin:10px 0 14px;min-width:0}
 .qmedia-actions,.qm-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.qmedia-voice-tools{display:inline-flex;align-items:center;gap:5px}
 .qmedia .btn{gap:6px;font-size:12px;min-height:34px;padding:5px 10px}
 .qmedia .btn svg{width:15px;height:15px;flex:none}
+.qmedia .qmedia-voice-edit{width:34px;min-width:34px;padding:0}
+[data-theme="dark"] .subject-page .qmedia .btn[data-saved="1"]{color:var(--brand-ink)}
+.qmedia .btn[data-voice-mode="playing"]{box-shadow:0 0 0 1px color-mix(in srgb,currentColor 48%,transparent)}
 .qmedia .btn[data-saved="1"]{color:var(--brand);background:var(--brand-soft);border-color:color-mix(in srgb,var(--brand) 32%,var(--line))}
 .qmedia-thumb{display:block;margin-top:10px;padding:6px;width:fit-content;max-width:100%;border:1px solid var(--line);border-radius:var(--r);background:#fff;cursor:zoom-in}
 .qmedia-thumb img,.qm-image img{display:block;width:auto;max-width:100%;height:auto;max-height:340px;object-fit:contain;border-radius:6px}
@@ -5315,6 +5319,7 @@ function cleanActiveModal(){
 }
 function closeModal(){cleanActiveModal();modalRoot.innerHTML='';document.body.style.overflow='';}
 function openModal(html,wide){
+  stopQuestionVoice();
   cleanActiveModal();
   modalRoot.innerHTML='<div class="overlay" data-overlay="1"><div class="modal" '+(wide?'style="max-width:600px"':'')+'>'+html+'</div></div>';
   document.body.style.overflow='hidden';
@@ -7219,10 +7224,13 @@ document.addEventListener('click',function(e){
     }
 
     case 'qmedia-voice':
+    case 'qmedia-voice-edit':
     case 'qmedia-image': {
       var mediaSource=questionMediaSource(el.dataset.qid);
       if(!mediaSource){toast('यह question अब library में नहीं है।',true);break;}
-      if(act==='qmedia-voice')openVoiceNote(mediaSource);else openImageNote(mediaSource);
+      if(act==='qmedia-voice')toggleQuestionVoice(el,mediaSource);
+      else if(act==='qmedia-voice-edit')openVoiceNote(mediaSource,true);
+      else openImageNote(mediaSource);
       break;
     }
     case 'add-q': openQuestionModal(sid,tid,null,el.dataset.sub||null); break;
@@ -7765,6 +7773,7 @@ document.addEventListener('toggle',function(e){
     else expandedQuestionLists.delete(d.dataset.qDetails);
   }
   if(d.open)mountLazy(d);
+  else if(activeQuestionVoice&&d.contains(activeQuestionVoice.node))stopQuestionVoice();
 },true);
 
 /* search input (in-place update: zero screen shake, zero animation replay, zero focus loss) */
@@ -7943,7 +7952,7 @@ function startHourlyMessages(){
 }
 
 function showWelcomeModal(){
-  if(modalRoot.firstElementChild)return;
+  if(modalRoot.firstElementChild||activeQuestionVoice)return;
   var html='<div class="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">'
     +'<button class="mini" data-act="close-modal" aria-label="बंद करें" style="position:absolute;right:13px;top:13px">✕</button>'
     +'<div class="welcome-spark">✨</div><p class="welcome-kicker">AYUSH~PREP में स्वागत है</p>'
@@ -7965,7 +7974,7 @@ var MAX_VOICE_SECONDS=300, MAX_VOICE_BYTES=5*1024*1024;
 var MAX_IMAGE_BYTES=3*1024*1024, MAX_IMAGE_INPUT=20*1024*1024;
 var MAX_MEDIA_BACKUP=80*1024*1024;
 var mediaDbPromise=null, mediaQuestionIndex=null, mediaIndexVersion=-1;
-var mediaMounts=new Map(), mediaObserver=null;
+var mediaMounts=new Map(), mediaObserver=null, activeQuestionVoice=null;
 var MEDIA_LIBRARY_HELP='Question bank अभी browser में save नहीं हुआ। Full backup लें और storage की जगह व permission जाँचें।';
 function canSaveMediaLibrary(){
   if(!storageAvailable||storageLocked)return false;
@@ -7974,6 +7983,9 @@ function canSaveMediaLibrary(){
 }
 var MEDIA_STORAGE_HELP='Voice notes और images save करने के लिए HTML डाउनलोड करके Chrome या Edge में खोलें। इस preview या browser में media storage उपलब्ध नहीं है।';
 var QM_MIC='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0m-7 7v3m-3 0h6"/></svg>';
+var QM_PLAY='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.8v14.4a1 1 0 0 0 1.5.86l12-7.2a1 1 0 0 0 0-1.72l-12-7.2a1 1 0 0 0-1.5.86Z"/></svg>';
+var QM_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1.2"/><rect x="14" y="4" width="4" height="16" rx="1.2"/></svg>';
+var QM_EDIT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.7 6.3l4 4m-13 8.9 1-4.7L16 4.2a2.8 2.8 0 0 1 4 4L9.7 18.5l-5 .7Z"/></svg>';
 var QM_IMAGE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="1.4"/><path d="m5 18 5-5 3 3 3-5 4 7"/></svg>';
 function eligibleMediaSubject(s){
   return /^(maths?|mathematics|reasoning|english|गणित|तर्कशक्ति|रीजनिंग|अंग्रेज़ी|अंग्रेजी)$/i.test(String((s&&s.name)||'').trim());
@@ -8069,15 +8081,103 @@ function questionMediaHTML(q,subject){
   if(!q||!q.id||!(subject?eligibleMediaSubject(subject):questionMediaSource(q.id)))return '';
   var id=esc(q.id);
   return '<div class="qmedia" data-qmedia-key="'+id+'"><div class="qmedia-actions">'
-    +'<button type="button" class="btn ghost sm" data-act="qmedia-voice" data-qid="'+id+'">'+QM_MIC+'<span>Voice note</span></button>'
+    +'<div class="qmedia-voice-tools"><button type="button" class="btn ghost sm" data-act="qmedia-voice" data-voice-mode="record" data-saved="0" data-qid="'+id+'">'+QM_MIC+'<span>Voice note</span></button>'
+    +'<button type="button" class="btn ghost sm qmedia-voice-edit" data-act="qmedia-voice-edit" data-qid="'+id+'" aria-label="Edit voice note" title="Edit voice note · Record again or remove" hidden>'+QM_EDIT+'</button></div>'
     +'<button type="button" class="btn ghost sm" data-act="qmedia-image" data-qid="'+id+'">'+QM_IMAGE+'<span>Add image</span></button>'
     +'</div><button type="button" class="qmedia-thumb" data-act="qmedia-image" data-qid="'+id+'" aria-label="Question image बड़ी देखें" hidden></button></div>';
 }
 function revokeMediaURL(url){if(url)URL.revokeObjectURL(url);}
+/* Only one question can play at a time. The player is never added to the page. */
+function paintQuestionVoice(node,tracked){
+  var button=node.querySelector('[data-act="qmedia-voice"]');
+  var saved=!!(tracked&&tracked.voice);
+  var mode=activeQuestionVoice&&activeQuestionVoice.node===node?activeQuestionVoice.phase:(saved?'play':'record');
+  if(button.dataset.voiceMode!==mode){
+    var icon=mode==='playing'?QM_PAUSE:mode==='record'?QM_MIC:QM_PLAY;
+    var label={record:'Voice note',play:'Play voice note',playing:'Pause voice note',paused:'Resume voice note',loading:'Loading voice…'}[mode];
+    button.innerHTML=icon+'<span>'+label+'</span>';
+    button.dataset.voiceMode=mode;
+  }
+  button.dataset.saved=saved?'1':'0';
+  node.querySelector('[data-act="qmedia-voice-edit"]').hidden=!saved;
+}
+function stopQuestionVoice(){
+  var run=activeQuestionVoice;
+  if(!run)return;
+  activeQuestionVoice=null;
+  if(run.audio){
+    run.audio.pause();run.audio.removeAttribute('src');run.audio.load();
+  }
+  revokeMediaURL(run.url);
+  if(run.node.isConnected)paintQuestionVoice(run.node,mediaMounts.get(run.node));
+}
+function questionVoiceError(run,error){
+  if(activeQuestionVoice!==run)return;
+  stopQuestionVoice();
+  toast(error&&error.name==='NotAllowedError'?'Browser ने audio रोक दिया। Play voice note फिर दबाएँ।':'Voice note नहीं चल पाया। Chrome या Edge में खोलें, या Edit voice note से नई recording करें।',true);
+}
+function playQuestionVoice(run){
+  var attempt=++run.attempt;
+  run.phase='playing';paintQuestionVoice(run.node,mediaMounts.get(run.node));
+  // Call play from the click handler when the blob is already loaded.
+  try{
+    Promise.resolve(run.audio.play()).catch(function(error){
+      if(run.attempt===attempt)questionVoiceError(run,error);
+    });
+  }catch(error){questionVoiceError(run,error);}
+}
+function startQuestionVoice(run,blob){
+  try{
+    var audio=new Audio();run.audio=audio;
+    audio.addEventListener('ended',function(){if(activeQuestionVoice===run)stopQuestionVoice();});
+    audio.addEventListener('error',function(){questionVoiceError(run);});
+    audio.addEventListener('pause',function(){
+      if(activeQuestionVoice===run&&audio.paused&&!audio.ended&&run.phase==='playing'){
+        run.phase='paused';paintQuestionVoice(run.node,mediaMounts.get(run.node));
+      }
+    });
+    run.url=URL.createObjectURL(blob);audio.src=run.url;
+    playQuestionVoice(run);
+  }catch(error){questionVoiceError(run,error);}
+}
+function toggleQuestionVoice(button,q){
+  var node=button.closest('[data-qmedia-key]');
+  if(!node)return;
+  var tracked=mediaMounts.get(node), current=activeQuestionVoice;
+  if(current&&current.node===node){
+    if(!current.audio)stopQuestionVoice(); // cancel a pending read
+    else if(current.audio.paused)playQuestionVoice(current);
+    else{
+      current.attempt++;current.phase='paused';current.audio.pause();paintQuestionVoice(node,tracked);
+    }
+    return;
+  }
+  var wasSaved=button.dataset.saved==='1';
+  stopQuestionVoice();
+  if(!tracked||(tracked.ready&&!tracked.voice)){
+    if(wasSaved)toast('Saved voice note नहीं मिला। Page reload करके फिर कोशिश करें।',true);
+    else openVoiceNote(q);
+    return;
+  }
+  var run={node:node,id:String(q.id),audio:null,url:'',phase:'loading',attempt:0};
+  activeQuestionVoice=run;
+  if(tracked.voice){startQuestionVoice(run,tracked.voice);return;}
+  paintQuestionVoice(node,tracked);
+  if(mediaObserver)mediaObserver.unobserve(node);
+  loadMountedMedia(node).then(function(){
+    if(activeQuestionVoice!==run||!node.isConnected)return;
+    if(tracked.voice)startQuestionVoice(run,tracked.voice);
+    else{
+      stopQuestionVoice();
+      if(wasSaved)toast('Saved voice note नहीं मिला। Page reload करके फिर कोशिश करें।',true);
+      else openVoiceNote(q);
+    }
+  });
+}
 function paintQuestionMedia(node,tracked,value){
-  var thumb=node.querySelector('.qmedia-thumb'), voice=node.querySelector('[data-act="qmedia-voice"]'), image=node.querySelector('.qmedia-actions [data-act="qmedia-image"]');
-  voice.firstElementChild.nextElementSibling.textContent=value&&value.voice?'Play voice note':'Voice note';
-  voice.dataset.saved=value&&value.voice?'1':'0';
+  var thumb=node.querySelector('.qmedia-thumb'), image=node.querySelector('.qmedia-actions [data-act="qmedia-image"]');
+  tracked.ready=true;tracked.voice=value&&value.voice||null;
+  paintQuestionVoice(node,tracked);
   image.firstElementChild.nextElementSibling.textContent=value&&value.image?'View image':'Add image';
   image.dataset.saved=value&&value.image?'1':'0';
   if(tracked.blob===(value&&value.image||null))return;
@@ -8093,13 +8193,17 @@ function paintQuestionMedia(node,tracked,value){
 }
 function loadMountedMedia(node){
   var tracked=mediaMounts.get(node);
-  if(!tracked)return;
+  if(!tracked||tracked.ready)return Promise.resolve();
+  if(tracked.loading)return tracked.loading;
   var version=++tracked.version;
-  readQuestionMedia(node.dataset.qmediaKey).then(function(value){
+  tracked.loading=readQuestionMedia(node.dataset.qmediaKey).then(function(value){
     if(node.isConnected&&mediaMounts.get(node)===tracked&&tracked.version===version)paintQuestionMedia(node,tracked,value);
-  }).catch(function(){/* individual errors are explained when the editor is opened */});
+  }).catch(function(){/* individual errors are explained when the editor is opened */})
+    .finally(function(){tracked.loading=null;});
+  return tracked.loading;
 }
 function syncQuestionMediaView(){
+  if(activeQuestionVoice&&!activeQuestionVoice.node.isConnected)stopQuestionVoice();
   mediaMounts.forEach(function(tracked,node){
     if(node.isConnected)return;
     if(mediaObserver)mediaObserver.unobserve(node);
@@ -8108,7 +8212,7 @@ function syncQuestionMediaView(){
   if(!storageAvailable)return;  // opaque preview frames cannot persist media
   view.querySelectorAll('[data-qmedia-key]').forEach(function(node){
     if(mediaMounts.has(node))return;
-    mediaMounts.set(node,{version:0,url:'',blob:null});
+    mediaMounts.set(node,{version:0,url:'',blob:null,voice:null,ready:false,loading:null});
     if(!window.IntersectionObserver){loadMountedMedia(node);return;}
     if(!mediaObserver)mediaObserver=new IntersectionObserver(function(entries){
       entries.forEach(function(entry){
@@ -8119,6 +8223,7 @@ function syncQuestionMediaView(){
   });
 }
 function refreshQuestionMedia(id,value){
+  if(activeQuestionVoice&&activeQuestionVoice.id===String(id)&&activeQuestionVoice.audio)stopQuestionVoice();
   mediaMounts.forEach(function(tracked,node){
     if(node.isConnected&&node.dataset.qmediaKey===String(id)){
       tracked.version++;
@@ -8128,6 +8233,7 @@ function refreshQuestionMedia(id,value){
   });
 }
 window.addEventListener('pagehide',function(){
+  stopQuestionVoice();
   if(activeModalCleanup)closeModal();
   if(mediaObserver)mediaObserver.disconnect();
   mediaMounts.forEach(function(tracked){revokeMediaURL(tracked.url);});mediaMounts.clear();
@@ -8173,7 +8279,10 @@ function useMediaEditor(q,title,html){
     if(state.cleanup)state.cleanup();
     revokeMediaURL(state.url);state.url='';state.blob=null;
     if(opener instanceof HTMLElement)requestAnimationFrame(function(){
-      if(opener.isConnected&&!modalRoot.firstElementChild)opener.focus({preventScroll:true});
+      if(!opener.isConnected||modalRoot.firstElementChild)return;
+      var voiceTools=opener.closest('.qmedia-voice-tools');
+      var focus=opener.hidden&&voiceTools?voiceTools.querySelector('[data-act="qmedia-voice"]'):opener;
+      focus.focus({preventScroll:true});
     });
   };
   root.addEventListener('keydown',function(e){
@@ -8213,8 +8322,8 @@ function makeRecorder(stream){
   try{return new MediaRecorder(stream,chosen?{mimeType:chosen,audioBitsPerSecond:40000}:{audioBitsPerSecond:40000});}
   catch(error){return new MediaRecorder(stream);}
 }
-function openVoiceNote(q){
-  var editor=useMediaEditor(q,'Voice note',
+function openVoiceNote(q,editing){
+  var editor=useMediaEditor(q,editing?'Edit voice note':'Voice note',
     '<audio data-qm="preview" controls preload="metadata" hidden></audio>'
     +'<div class="qm-controls">'+mediaButton('start','● Record','primary',true)
     +mediaButton('stop','■ Stop','danger',true)+mediaButton('save','Save voice note','primary',true)
@@ -8291,7 +8400,10 @@ function openVoiceNote(q){
     try{
       var next=await updateQuestionMedia(id,change);
       refreshQuestionMedia(id,next);
-      if(!editor.closed){saved=next;draft=null;editor.status(success);}
+      if(!editor.closed){
+        saved=next;draft=null;
+        if(needsSavedQuestion)closeModal();else editor.status(success);
+      }
       toast(success);
     }catch(error){writeMediaError(editor,error);}
     if(!editor.closed){stage='ready';refresh();}
@@ -8536,5 +8648,5 @@ startHourlyMessages();
 showStorageStatus();
 })();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5c5d1bf1e875984',t:'MTc5NDk5Mjc4OA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5c5d1bf1e875984',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5c5dfe2092991b5',t:'MTc5NDk5MzM2Nw=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5c5dfe2092991b5',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
